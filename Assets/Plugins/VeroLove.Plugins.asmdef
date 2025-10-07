@@ -1,0 +1,16 @@
+{
+    "name": "VeroLove.Plugins",
+    "rootNamespace": "",
+    "references": [
+        "GUID:69d8ef89868ee4749a23be4119907a13"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

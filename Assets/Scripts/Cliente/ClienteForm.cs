@@ -1,42 +1,31 @@
 ﻿using UnityEngine;
 using TMPro;
-using SQLite;
+using Microsoft.Data.Sqlite;
+using Unity.VisualScripting.Dependencies.Sqlite;
 
 public class ClienteForm : MonoBehaviour
 {
-    // Dependencias de UI
     public TMP_InputField inputNombre;
-    public TMP_InputField inputApellido; // Asegúrate de tener este campo en la UI
+    public TMP_InputField inputApellido;
     public TMP_InputField inputTelefono;
-    public TMP_InputField inputMail; // Corresponde al campo Email en el UI/DB
-    public ClienteUI clienteUI; // Referencia para recargar la lista visual
+    public TMP_InputField inputMail;
+    public ClienteUI clienteUI;
     public GameObject panelFormulario;
 
-    // Conexión a la DB
-    private SQLiteConnection db;
+    private SqliteConnection db;
 
     void Awake()
     {
-        // Obtener la conexión a la base de datos usando el Singleton
         if (DBConnection.Instance != null)
         {
             db = DBConnection.Instance.GetConnection();
-        }
-        else
-        {
-            Debug.LogError("DBConnection no está inicializado. No se puede guardar clientes.");
         }
     }
 
     public void GuardarCliente()
     {
-        if (db == null)
-        {
-            Debug.LogError("Conexión a DB no disponible.");
-            return;
-        }
+        if (db == null) return;
 
-        // 1. Recolección y saneamiento de datos
         string nombre = (inputNombre?.text ?? "").Trim();
         string apellido = (inputApellido?.text ?? "").Trim();
         string telefono = (inputTelefono?.text ?? "").Trim();
@@ -44,40 +33,53 @@ public class ClienteForm : MonoBehaviour
 
         if (string.IsNullOrEmpty(nombre) || string.IsNullOrEmpty(apellido))
         {
-            // Error que viste: [ClienteForm] Nombre y Apellido son requeridos.
             Debug.LogWarning("[ClienteForm] Nombre y Apellido son requeridos.");
             return;
         }
 
-        // 2. Instancia el Cliente usando inicializador de objeto
-        // ESTO RESUELVE el error CS1729
-        Cliente nuevoCliente = new Cliente
-        {
-            Nombre = nombre,
-            Apellido = apellido,
-            Telefono = telefono,
-            Mail = mail
-        };
-
-        // 3. Guarda el cliente en la base de datos SQLite
         try
         {
-            db.Insert(nuevoCliente);
-            Debug.Log($"✅ Cliente '{nombre} {apellido}' guardado con ID: {nuevoCliente.Id}");
+            db.Open();
 
-            // 4. Recargar la lista visual de clientes
-            if (clienteUI != null)
+            using (var command = db.CreateCommand())
             {
-                clienteUI.RecargarListaClientes();
+                // Usamos parámetros para prevenir inyección SQL
+                command.CommandText = "INSERT INTO Cliente (Nombre, Apellido, Telefono, Mail) VALUES (@nombre, @apellido, @telefono, @mail)";
+                command.Parameters.AddWithValue("@nombre", nombre);
+                command.Parameters.AddWithValue("@apellido", apellido);
+                command.Parameters.AddWithValue("@telefono", telefono);
+                command.Parameters.AddWithValue("@mail", mail);
+                command.ExecuteNonQuery();
+            }
+
+            db.Close();
+
+            Debug.Log($"✅ Cliente '{nombre} {apellido}' guardado.");
+
+            if (clienteUI != null) clienteUI.RecargarListaClientes();
+
+        }
+        catch (SqliteException e)
+        {
+            // Error si el correo (Mail) es duplicado (debido a UNIQUE en la tabla)
+            if (e.SqliteErrorCode == 19) // SQLite error code for constraint violation
+            {
+                Debug.LogError("El correo electrónico ya está registrado.");
+            }
+            else
+            {
+                Debug.LogError($"❌ Error al guardar cliente: {e.Message}");
             }
         }
         catch (System.Exception e)
         {
-            // Útil para detectar correos duplicados si el campo [Unique] está activado
-            Debug.LogError($"❌ Error al guardar cliente: {e.Message}");
+            Debug.LogError($"❌ Error general al guardar cliente: {e.Message}");
+        }
+        finally
+        {
+            if (db.State == System.Data.ConnectionState.Open) db.Close();
         }
 
-        // 5. Limpiar y Ocultar Formulario
         LimpiarFormulario();
     }
 

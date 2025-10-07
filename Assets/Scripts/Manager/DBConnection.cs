@@ -1,18 +1,12 @@
 ﻿using UnityEngine;
 using System.IO;
-
-// 1. Reintroducimos el alias para forzar a usar la librería que quedó.
-// Si esta línea causa error, significa que SQLite.SQLiteConnection no existe 
-// y tendrías que usar el namespace completo de la versión de Visual Scripting.
-// Asumiremos que la que dejaste es la correcta.
-using SQLiteConnectionCustom = SQLite.SQLiteConnection;
+using Microsoft.Data.Sqlite;
+using Unity.VisualScripting.Dependencies.Sqlite;
 
 public class DBConnection : MonoBehaviour
 {
-    // Usamos el alias para declarar la variable
-    private SQLiteConnectionCustom db;
-
-    // Singleton
+    // Usamos el tipo de la nueva librería, 'SqliteConnection' (S minúscula)
+    private SqliteConnection db;
     public static DBConnection Instance { get; private set; }
 
     void Awake()
@@ -34,34 +28,52 @@ public class DBConnection : MonoBehaviour
         string dbFileName = "VeroLoveDB.sqlite";
         string dbPath = Path.Combine(Application.persistentDataPath, dbFileName);
 
-        Debug.Log("Intentando conectar/crear DB en: " + dbPath);
-
         try
         {
-            // Usamos el alias para instanciar la conexión
-            db = new SQLiteConnectionCustom(dbPath);
+            // Construye el string de conexión requerido por Microsoft.Data.Sqlite
+            var connectionStringBuilder = new SqliteConnectionStringBuilder
+            {
+                DataSource = dbPath
+            };
 
-            // Creación de Tablas
-            db.CreateTable<Cliente>();
-            db.CreateTable<Servicio>();
-            db.CreateTable<Profesional>();
-            db.CreateTable<Turno>();
+            db = new SqliteConnection(connectionStringBuilder.ToString());
+            db.Open(); // Abrir la conexión
+
+            // Creamos las tablas usando comandos SQL puros (CREATE TABLE)
+            using (var command = db.CreateCommand())
+            {
+                // CLIENTE
+                command.CommandText = "CREATE TABLE IF NOT EXISTS Cliente (Id INTEGER PRIMARY KEY AUTOINCREMENT, Nombre TEXT, Apellido TEXT, Mail TEXT UNIQUE, Telefono TEXT)";
+                command.ExecuteNonQuery();
+
+                // SERVICIO
+                command.CommandText = "CREATE TABLE IF NOT EXISTS Servicio (Id INTEGER PRIMARY KEY AUTOINCREMENT, Nombre TEXT, Descripcion TEXT, DuracionMinutos INTEGER, Precio REAL)";
+                command.ExecuteNonQuery();
+
+                // PROFESIONAL
+                command.CommandText = "CREATE TABLE IF NOT EXISTS Profesional (Id INTEGER PRIMARY KEY AUTOINCREMENT, Nombre TEXT, Apellido TEXT, Especialidad TEXT, Telefono TEXT)";
+                command.ExecuteNonQuery();
+
+                // TURNO
+                command.CommandText = "CREATE TABLE IF NOT EXISTS Turno (Id INTEGER PRIMARY KEY AUTOINCREMENT, IdCliente INTEGER, IdServicio INTEGER, IdProfesional INTEGER, FechaHoraInicio TEXT, Estado TEXT, Notas TEXT)";
+                command.ExecuteNonQuery();
+            }
+
+            db.Close(); // Cerrar la conexión
 
             Debug.Log("✅ Conexión a DB y tablas verificadas/creadas exitosamente.");
         }
         catch (System.Exception e)
         {
-            // Nota: Si este error vuelve a salir, el problema es que el binario nativo (sqlite3.dll) sigue faltando.
             Debug.LogError("❌ ERROR FATAL al inicializar la base de datos: " + e.Message);
         }
     }
 
-    // El método GetConnection() necesario para el Singleton
-    public SQLiteConnectionCustom GetConnection()
+    public SqliteConnection GetConnection()
     {
         if (db == null)
         {
-            Debug.LogError("La conexión a la DB es nula. Reintentando la inicialización...");
+            Debug.LogError("La conexión a la DB es nula. Reiniciando la inicialización...");
             InitializeDatabase();
         }
         return db;
