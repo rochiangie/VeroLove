@@ -2,51 +2,55 @@
 using TMPro;
 using SQLite;
 
-// Añadimos el alias necesario para la conexión a SQLite
-using SQLiteConnectionCustom = SQLite.SQLiteConnection;
-
 public class ClienteForm : MonoBehaviour
 {
     // Dependencias de UI
     public TMP_InputField inputNombre;
-    public TMP_InputField inputApellido; // Asumo que tienes este campo para el modelo completo
+    public TMP_InputField inputApellido; // Asegúrate de tener este campo en la UI
     public TMP_InputField inputTelefono;
-    public TMP_InputField inputMail;
+    public TMP_InputField inputMail; // Corresponde al campo Email en el UI/DB
+    public ClienteUI clienteUI; // Referencia para recargar la lista visual
     public GameObject panelFormulario;
 
-    // Referencia a la conexión de la DB
-    private DBConnection dbConnection;
-    private SQLiteConnectionCustom db;
+    // Conexión a la DB
+    private SQLiteConnection db;
 
     void Awake()
     {
-        // Obtener la conexión a la base de datos al inicio
-        dbConnection = FindObjectOfType<DBConnection>();
-        if (dbConnection == null)
+        // Obtener la conexión a la base de datos usando el Singleton
+        if (DBConnection.Instance != null)
         {
-            Debug.LogError("DBConnection no encontrado. Asegúrate de que está en la escena.");
-            return;
+            db = DBConnection.Instance.GetConnection();
         }
-        db = dbConnection.GetConnection();
+        else
+        {
+            Debug.LogError("DBConnection no está inicializado. No se puede guardar clientes.");
+        }
     }
 
     public void GuardarCliente()
     {
+        if (db == null)
+        {
+            Debug.LogError("Conexión a DB no disponible.");
+            return;
+        }
+
         // 1. Recolección y saneamiento de datos
         string nombre = (inputNombre?.text ?? "").Trim();
-        string apellido = (inputApellido?.text ?? "").Trim(); // Asumiendo que existe en la UI
+        string apellido = (inputApellido?.text ?? "").Trim();
         string telefono = (inputTelefono?.text ?? "").Trim();
         string mail = (inputMail?.text ?? "").Trim();
 
         if (string.IsNullOrEmpty(nombre) || string.IsNullOrEmpty(apellido))
         {
+            // Error que viste: [ClienteForm] Nombre y Apellido son requeridos.
             Debug.LogWarning("[ClienteForm] Nombre y Apellido son requeridos.");
-            // Aquí deberías mostrar una alerta en la UI
             return;
         }
 
-        // 2. CORRECCIÓN: Instancia el Cliente usando inicializador de objeto
-        // Esto resuelve el error CS1729
+        // 2. Instancia el Cliente usando inicializador de objeto
+        // ESTO RESUELVE el error CS1729
         Cliente nuevoCliente = new Cliente
         {
             Nombre = nombre,
@@ -60,20 +64,21 @@ public class ClienteForm : MonoBehaviour
         {
             db.Insert(nuevoCliente);
             Debug.Log($"✅ Cliente '{nombre} {apellido}' guardado con ID: {nuevoCliente.Id}");
+
+            // 4. Recargar la lista visual de clientes
+            if (clienteUI != null)
+            {
+                clienteUI.RecargarListaClientes();
+            }
         }
         catch (System.Exception e)
         {
-            // Error común: Correo duplicado si pusiste [Unique]
+            // Útil para detectar correos duplicados si el campo [Unique] está activado
             Debug.LogError($"❌ Error al guardar cliente: {e.Message}");
-            return;
         }
 
-        // 4. Limpiar y Ocultar Formulario
+        // 5. Limpiar y Ocultar Formulario
         LimpiarFormulario();
-
-        // Si tienes una lista de clientes en el ClienteUI, necesitarás un método para refrescarla.
-        // Asumiendo que ClienteUI tiene ahora un método de recarga:
-        // clienteUI.RecargarListaClientes(); 
     }
 
     private void LimpiarFormulario()

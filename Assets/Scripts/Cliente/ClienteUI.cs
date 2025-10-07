@@ -5,80 +5,81 @@ using TMPro;
 using SQLite;
 using System.Linq;
 
-// Añadimos el alias necesario para la conexión a SQLite
-using SQLiteConnectionCustom = SQLite.SQLiteConnection;
 
 public class ClienteUI : MonoBehaviour
 {
     [Header("UI")]
     public Transform contenedorClientes;      // Content del ScrollView
-    public GameObject prefabClienteItem;      // Prefab con hijos: Nombre, Telefono, Email (TMP_Text)
+    public GameObject prefabClienteItem;      // Prefab del ítem de la lista
     public TMP_InputField inputBusqueda;      // Campo de búsqueda
-    public Button botonBuscar;                // (Opcional) botón Buscar
+    public Button botonBuscar;                // Botón Buscar (opcional)
 
-    // Referencia a la conexión de la DB
-    private DBConnection dbConnection;
-    private SQLiteConnectionCustom db;
+    // Conexión a la DB
+    private SQLiteConnection db;
     private List<Cliente> listaClientes = new List<Cliente>();
 
     void Awake()
     {
-        // Obtener la conexión a la base de datos
-        dbConnection = FindObjectOfType<DBConnection>();
-        if (dbConnection == null)
+        // 1. Obtener la conexión a la base de datos usando el Singleton
+        if (DBConnection.Instance != null)
         {
-            Debug.LogError("DBConnection no encontrado. Asegúrate de que está en la escena.");
-            return;
+            db = DBConnection.Instance.GetConnection();
         }
-        db = dbConnection.GetConnection();
+        else
+        {
+            Debug.LogError("DBConnection no está inicializado. No se puede cargar clientes.");
+        }
     }
 
     void Start()
     {
-        CargarClientesDesdeDB();
-        MostrarClientes();
+        CargarClientesDesdeDB(); // Carga inicial
 
-        // Filtro en vivo
+        // Configuración de listeners
         if (inputBusqueda != null)
+            // Usamos BuscarClienteVisual para filtrar en la lista visual cargada
             inputBusqueda.onValueChanged.AddListener(_ => BuscarClienteVisual());
 
-        // Botón Buscar (si existe en la escena)
         if (botonBuscar != null)
             botonBuscar.onClick.AddListener(BuscarClienteVisual);
     }
 
-    // --- Lógica de Carga de Datos (SQLite) ---
+    // --- Lógica de Carga y Recarga de Datos ---
 
-    public void CargarClientesDesdeDB()
+    // Este método es llamado por ClienteForm.cs después de guardar un nuevo cliente
+    public void RecargarListaClientes()
     {
+        CargarClientesDesdeDB();
+    }
+
+    private void CargarClientesDesdeDB()
+    {
+        if (db == null) return;
+
         try
         {
-            // Cargar todos los clientes de la tabla
-            listaClientes = db.Table<Cliente>().ToList();
-            listaClientes = listaClientes.OrderBy(c => c.Apellido).ToList(); // Opcional: ordenar por apellido
+            // Cargar todos los clientes de la tabla, ordenados por Apellido
+            listaClientes = db.Table<Cliente>()
+                              .OrderBy(c => c.Apellido)
+                              .ToList();
         }
         catch (System.Exception e)
         {
             Debug.LogError($"Error al cargar clientes desde DB: {e.Message}");
-            listaClientes = new List<Cliente>(); // Inicializar vacía en caso de error
+            listaClientes = new List<Cliente>();
         }
         MostrarClientes();
-    }
-
-    // El método AgregarCliente ya no se necesita, el Guardar ocurre en ClienteForm.cs
-    // Ahora solo necesitamos recargar la lista si ClienteForm guarda algo nuevo.
-    public void RecargarListaClientes()
-    {
-        CargarClientesDesdeDB();
     }
 
     // --- Lógica de Interfaz Visual ---
 
     private void MostrarClientes()
     {
+        // Limpiar contenedor
         foreach (Transform hijo in contenedorClientes)
             Destroy(hijo.gameObject);
 
+        // Crear ítems para cada cliente
         foreach (Cliente cliente in listaClientes)
             CrearItemVisual(cliente);
     }
@@ -87,34 +88,30 @@ public class ClienteUI : MonoBehaviour
     {
         GameObject item = Instantiate(prefabClienteItem, contenedorClientes);
 
-        // CORRECCIÓN: Usamos la capitalización correcta (PascalCase) de las propiedades
-        // Esto resuelve los errores CS1061
-
-        // Aquí podrías usar una subclase para manejar el Item, pero por simplicidad:
+        // CORRECCIÓN CS1061: Usamos la capitalización correcta (PascalCase) de las propiedades
+        // El error CS1061 se resuelve aquí
 
         TMP_Text nombreTMP = item.transform.Find("Nombre")?.GetComponent<TMP_Text>();
         TMP_Text telefonoTMP = item.transform.Find("Telefono")?.GetComponent<TMP_Text>();
+        // Usamos Mail en lugar del antiguo Email si seguiste el modelo
         TMP_Text emailTMP = item.transform.Find("Email")?.GetComponent<TMP_Text>();
 
-        // Usamos las propiedades correctas: Nombre, Apellido, Telefono, Mail (del modelo Cliente.cs)
-        if (nombreTMP != null) nombreTMP.text = $"{cliente.Nombre} {cliente.Apellido}"; // Concatenamos Nombre y Apellido
+        // Asignamos el texto usando las propiedades correctas del modelo Cliente.cs
+        if (nombreTMP != null) nombreTMP.text = $"{cliente.Nombre} {cliente.Apellido}";
         if (telefonoTMP != null) telefonoTMP.text = cliente.Telefono;
-        if (emailTMP != null) emailTMP.text = cliente.Mail;
-
-        // Opcional: Guardar el ID en el item para usarlo al seleccionarlo
-        // item.GetComponent<ClienteItem>()?.SetClienteId(cliente.Id); 
+        if (emailTMP != null) emailTMP.text = cliente.Mail; // Usamos Mail (corregido)
     }
 
     // --- Lógica de Búsqueda ---
 
-    // Cambiamos el nombre para que refleje que solo busca en la lista visual actual
     public void BuscarClienteVisual()
     {
         string filtro = (inputBusqueda != null ? inputBusqueda.text : "").Trim().ToLower();
 
+        // Filtra los ítems visuales que ya están cargados
         foreach (Transform hijo in contenedorClientes)
         {
-            // Suponemos que el texto visible del cliente está en el hijo llamado "Nombre"
+            // Asume que el texto principal para buscar está en el hijo llamado "Nombre"
             TMP_Text textoNombreCompleto = hijo.Find("Nombre")?.GetComponent<TMP_Text>();
             string nombreCompleto = (textoNombreCompleto != null ? textoNombreCompleto.text : "").ToLower();
 
@@ -123,6 +120,6 @@ public class ClienteUI : MonoBehaviour
         }
     }
 
-    // Método para ser usado por el TurnoManager
+    // Método para ser usado por otros Managers (ej. TurnoManager para poblar el dropdown)
     public List<Cliente> ObtenerClientes() => listaClientes;
 }

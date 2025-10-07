@@ -3,80 +3,97 @@ using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
 using SQLite;
-using System.Linq; // Necesario para LINQ (consultas SQL en C#)
+using System.Linq;
 
-// Alias para evitar el error de ambigüedad
-using SQLiteConnectionCustom = SQLite.SQLiteConnection;
+// Nota: Si tu plugin Simple Database utiliza un namespace diferente, cambia 'using SQLite;' 
+// por el que te corresponda (ej. using SimpleDatabase;). 
 
 public class TurnoManager : MonoBehaviour
 {
     // Dependencias de UI
     public GameObject turnoItemPrefab;
     public Transform contentContainer;
+
+    [Header("Formulario de Turnos")]
     public TMP_InputField inputFecha;
     public TMP_InputField inputHora;
     public TMP_Dropdown dropdownCliente;
     public TMP_Dropdown dropdownServicio;
-    public TMP_Dropdown dropdownProfesional; // ¡Añadido! Necesario para la lógica
+    public TMP_Dropdown dropdownProfesional;
     public GameObject panelFormulario;
 
-    // Referencia al gestor de la base de datos
-    private DBConnection dbConnection;
-    private SQLiteConnectionCustom db;
+    // Conexión a la DB
+    private SQLiteConnection db;
 
     void Awake()
     {
-        // Encontrar la instancia de DBConnection que pusimos en la escena
-        dbConnection = FindObjectOfType<DBConnection>();
-        if (dbConnection == null)
+        // Usamos el patrón Singleton para obtener la única instancia de la DB
+        if (DBConnection.Instance != null)
         {
-            Debug.LogError("DBConnection no encontrado. Asegúrate de que está en la escena.");
-            return;
+            db = DBConnection.Instance.GetConnection();
         }
-        db = dbConnection.GetConnection();
+        else
+        {
+            Debug.LogError("DBConnection no está inicializado. ¡Asegúrate de que está en la escena y tiene orden de ejecución anticipado!");
+        }
     }
 
     void Start()
     {
         CargarDatosInicialesUI();
-        MostrarTurnosDelDia(DateTime.Today); // Mostrar los turnos de hoy al iniciar
+        // Mostrar turnos del día actual al iniciar
+        MostrarTurnosDelDia(DateTime.Today);
     }
 
-    // --- Métodos de Carga de Datos y UI ---
+    // ----------------------------------------------------------------------
+    // 1. LÓGICA DE CARGA DE DATOS EN LA INTERFAZ
+    // ----------------------------------------------------------------------
 
     void CargarDatosInicialesUI()
     {
-        // Cargar Clientes, Servicios y Profesionales en los Dropdowns
-        // (La lógica detallada de carga de dropdowns es extensa, se omite aquí 
-        // pero requiere usar db.Table<Cliente>().ToList() y poblar las opciones.)
-
-        // EJEMPLO: Carga de Profesionales (CRUCIAL)
-        var profesionales = db.Table<Profesional>().ToList();
+        // Limpiar Dropdowns
+        dropdownCliente.ClearOptions();
+        dropdownServicio.ClearOptions();
         dropdownProfesional.ClearOptions();
-        List<string> nombresProfesionales = profesionales.Select(p => p.Nombre).ToList();
+
+        // Cargar Profesionales
+        var profesionales = db.Table<Profesional>().ToList();
+        List<string> nombresProfesionales = profesionales.Select(p => p.Nombre + " " + p.Apellido).ToList();
         dropdownProfesional.AddOptions(nombresProfesionales);
+
+        // Cargar Servicios
+        var servicios = db.Table<Servicio>().ToList();
+        List<string> nombresServicios = servicios.Select(s => s.Nombre).ToList();
+        dropdownServicio.AddOptions(nombresServicios);
+
+        // Cargar Clientes
+        var clientes = db.Table<Cliente>().ToList();
+        List<string> nombresClientes = clientes.Select(c => c.Nombre + " " + c.Apellido).ToList();
+        dropdownCliente.AddOptions(nombresClientes);
+
+        // Nota: Esta es una simplificación. Para la vida real, es mejor guardar 
+        // una lista de los IDs para mapear la selección con el objeto DB.
     }
 
     public void MostrarTurnosDelDia(DateTime fecha)
     {
-        // 1. Limpiar lista
+        // Limpiar lista visual
         foreach (Transform child in contentContainer)
         {
             Destroy(child.gameObject);
         }
 
-        // 2. Consulta a la DB para obtener los turnos del día
-        // Nota: Tienes que asegurarte que la fecha de la DB se guarde en formato ISO
+        // Obtener turnos de la DB para la fecha seleccionada
         var turnosDelDia = db.Table<Turno>()
-            .ToList() // Traer todos los turnos (simplificación)
-            .Where(t => t.FechaHoraInicio.Date == fecha.Date) // Filtrar por la fecha
+            .ToList() // Se recomienda usar AsParallel() para consultas grandes, pero .ToList() funciona para la mayoría de apps pequeñas
+            .Where(t => t.FechaHoraInicio.Date == fecha.Date)
             .OrderBy(t => t.FechaHoraInicio)
             .ToList();
 
-        // 3. Mostrar en la lista
+        // Mostrar en la lista
         foreach (var turno in turnosDelDia)
         {
-            // Necesitarás consultar los nombres de Cliente y Profesional para la UI
+            // Consultamos los nombres completos para la UI (JOIN manual)
             var cliente = db.Table<Cliente>().Where(c => c.Id == turno.IdCliente).FirstOrDefault();
             var profesional = db.Table<Profesional>().Where(p => p.Id == turno.IdProfesional).FirstOrDefault();
             var servicio = db.Table<Servicio>().Where(s => s.Id == turno.IdServicio).FirstOrDefault();
@@ -84,130 +101,152 @@ public class TurnoManager : MonoBehaviour
             if (cliente != null && profesional != null && servicio != null)
             {
                 GameObject item = Instantiate(turnoItemPrefab, contentContainer);
-                // ESTO REEMPLAZA LOS NOMBRES VIEJOS (clienteNombre, servicio, fecha, hora)
-                item.transform.GetChild(0).GetComponent<TextMeshProUGUI>().text = $"{turno.FechaHoraInicio:HH:mm} - {profesional.Nombre}";
+
+                // Asignamos la información en el Item Visual
+                string horaInicio = turno.FechaHoraInicio.ToString("HH:mm");
+
+                item.transform.GetChild(0).GetComponent<TextMeshProUGUI>().text = horaInicio;
                 item.transform.GetChild(1).GetComponent<TextMeshProUGUI>().text = $"{cliente.Nombre} {cliente.Apellido}";
-                item.transform.GetChild(2).GetComponent<TextMeshProUGUI>().text = servicio.Nombre;
+                item.transform.GetChild(2).GetComponent<TextMeshProUGUI>().text = $"{servicio.Nombre} ({profesional.Nombre})";
             }
         }
     }
 
-    // --- Lógica de Agendamiento ---
+    // ----------------------------------------------------------------------
+    // 2. LÓGICA DE AGENDAMIENTO Y VALIDACIÓN
+    // ----------------------------------------------------------------------
 
     public void GuardarTurno()
     {
-        // 1. Obtener los IDs y datos de los Dropdowns (Necesitas una lógica para guardar los IDs, 
-        // pero por ahora, simplificamos la obtención de texto)
-        string fechaStr = inputFecha.text;
-        string horaStr = inputHora.text;
-
-        if (!DateTime.TryParse(fechaStr + " " + horaStr, out DateTime fechaHoraInicio))
+        // 1. Parseo y Validación Básica de Fecha/Hora
+        if (!DateTime.TryParse(inputFecha.text + " " + inputHora.text, out DateTime fechaHoraInicio))
         {
-            Debug.LogError("Fecha u hora no válidas.");
-            // Aquí iría una alerta al usuario
+            Debug.LogError("Error: Fecha u hora no válidas.");
             return;
         }
 
-        // Necesitas obtener los IDs correctos basados en la selección.
-        // Simulamos la obtención de IDs:
-        int idProfesionalSeleccionado = GetIdProfesional(dropdownProfesional.options[dropdownProfesional.value].text);
-        int idServicioSeleccionado = GetIdServicio(dropdownServicio.options[dropdownServicio.value].text);
-        int idClienteSeleccionado = GetIdCliente(dropdownCliente.options[dropdownCliente.value].text); // Suponiendo que guardas el nombre y necesitas el ID
+        // 2. Obtener IDs (Simplificado: ¡Deberías usar los IDs reales de la DB!)
+        int idProfesional = GetIdProfesionalByName(dropdownProfesional.options[dropdownProfesional.value].text);
+        int idServicio = GetIdServicioByName(dropdownServicio.options[dropdownServicio.value].text);
+        int idCliente = GetIdClienteByName(dropdownCliente.options[dropdownCliente.value].text);
 
-        // Obtener la duración del servicio (CRUCIAL)
-        var servicioElegido = db.Table<Servicio>().Where(s => s.Id == idServicioSeleccionado).FirstOrDefault();
-        if (servicioElegido == null)
+        if (idProfesional == -1 || idServicio == -1 || idCliente == -1)
         {
-            Debug.LogError("Servicio no encontrado.");
+            Debug.LogError("Error al obtener ID del Profesional, Servicio o Cliente.");
             return;
         }
+
+        // 3. Obtener la duración del servicio (Necesaria para validar solapamiento)
+        var servicioElegido = db.Table<Servicio>().Where(s => s.Id == idServicio).FirstOrDefault();
+        if (servicioElegido == null) return;
         int duracionMinutos = servicioElegido.DuracionMinutos;
 
-        // 2. VALIDACIÓN DE SOLAPAMIENTO (La lógica de negocio principal)
-        if (ExisteSolapamiento(idProfesionalSeleccionado, fechaHoraInicio, duracionMinutos))
+        // 4. VALIDACIÓN DE SOLAPAMIENTO (La lógica de negocio)
+        if (ExisteSolapamiento(idProfesional, fechaHoraInicio, duracionMinutos))
         {
-            Debug.LogError("❌ ERROR: El profesional ya tiene un turno agendado en ese horario.");
-            // Aquí iría una alerta de UI al usuario
+            Debug.LogWarning("❌ ERROR: El profesional NO está disponible en ese horario. ¡Solapamiento detectado!");
             return;
         }
 
-        // 3. CREAR Y GUARDAR el nuevo Turno
+        // 5. Creación y Guardado
         Turno nuevoTurno = new Turno
         {
-            IdCliente = idClienteSeleccionado,
-            IdServicio = idServicioSeleccionado,
-            IdProfesional = idProfesionalSeleccionado,
+            IdCliente = idCliente,
+            IdServicio = idServicio,
+            IdProfesional = idProfesional,
             FechaHoraInicio = fechaHoraInicio,
-            Estado = "Confirmado" // Estado inicial
+            Estado = "Confirmado"
         };
 
         db.Insert(nuevoTurno);
 
-        Debug.Log("✅ Turno agendado exitosamente para el profesional ID: " + idProfesionalSeleccionado);
+        Debug.Log("✅ Turno agendado exitosamente.");
 
         MostrarTurnosDelDia(fechaHoraInicio.Date);
         CancelarFormulario();
     }
 
-    // --- Lógica de Validación de Solapamiento ---
-
     private bool ExisteSolapamiento(int idProfesional, DateTime inicioNuevoTurno, int duracionNuevoTurno)
     {
         DateTime finNuevoTurno = inicioNuevoTurno.AddMinutes(duracionNuevoTurno);
 
-        // Buscar turnos existentes para ese profesional en ese día
+        // Consulta todos los turnos confirmados del día para ese profesional
         var turnosExistentes = db.Table<Turno>()
             .ToList()
-            .Where(t => t.IdProfesional == idProfesional && t.FechaHoraInicio.Date == inicioNuevoTurno.Date)
+            .Where(t => t.IdProfesional == idProfesional &&
+                        t.FechaHoraInicio.Date == inicioNuevoTurno.Date &&
+                        t.Estado == "Confirmado")
             .ToList();
 
         foreach (var turnoExistente in turnosExistentes)
         {
-            // Necesitamos la duración del servicio del turno existente
+            // Necesitamos la duración del turno existente para calcular su fin
             var servicioExistente = db.Table<Servicio>().Where(s => s.Id == turnoExistente.IdServicio).FirstOrDefault();
-            if (servicioExistente == null) continue; // Si no encuentra el servicio, lo salta
+            if (servicioExistente == null) continue;
 
             DateTime finTurnoExistente = turnoExistente.FechaHoraInicio.AddMinutes(servicioExistente.DuracionMinutos);
 
-            // Criterio de Solapamiento:
-            // Un solapamiento ocurre si:
-            // 1. El inicio del nuevo turno está entre el inicio y el fin del existente.
-            // O
-            // 2. El fin del nuevo turno está entre el inicio y el fin del existente.
-            // O
-            // 3. El nuevo turno envuelve completamente al existente.
-
-            bool inicioSolapa = inicioNuevoTurno >= turnoExistente.FechaHoraInicio && inicioNuevoTurno < finTurnoExistente;
-            bool finSolapa = finNuevoTurno > turnoExistente.FechaHoraInicio && finNuevoTurno <= finTurnoExistente;
-            bool envuelve = inicioNuevoTurno <= turnoExistente.FechaHoraInicio && finNuevoTurno >= finTurnoExistente;
-
-            if (inicioSolapa || finSolapa || envuelve)
+            // Regla de Solapamiento:
+            // Dos intervalos [A, B) y [C, D) se solapan si A < D Y C < B
+            if (inicioNuevoTurno < finTurnoExistente && finNuevoTurno > turnoExistente.FechaHoraInicio)
             {
-                return true; // ¡Hay solapamiento!
+                return true; // Hay solapamiento
             }
         }
-        return false; // No hay solapamiento, se puede agendar
+        return false;
     }
 
-    // --- Métodos de Ayuda (Debes implementarlos completamente) ---
-    // Estos métodos deberían consultar la DB y devolver el ID basado en la selección del Dropdown
-    private int GetIdProfesional(string nombreProfesional)
+    // ----------------------------------------------------------------------
+    // 3. MÉTODOS DE AYUDA (Para mapear Dropdown Text a DB ID)
+    // ----------------------------------------------------------------------
+
+    // Mapea el texto del Dropdown (Nombre Apellido) al ID del profesional en la DB
+    private int GetIdProfesionalByName(string nombreCompleto)
     {
-        var prof = db.Table<Profesional>().Where(p => p.Nombre == nombreProfesional).FirstOrDefault();
+        var partes = nombreCompleto.Split(' ');
+        if (partes.Length < 2) return -1;
+
+        string nombre = partes[0];
+        string apellido = partes[1]; // Simplificado
+
+        var prof = db.Table<Profesional>()
+                     .Where(p => p.Nombre == nombre && p.Apellido == apellido)
+                     .FirstOrDefault();
+
         return prof != null ? prof.Id : -1;
     }
-    private int GetIdServicio(string nombreServicio) { /* Lógica similar a GetIdProfesional */ return 1; }
-    private int GetIdCliente(string nombreCliente) { /* Lógica similar a GetIdProfesional */ return 1; }
+
+    // Mapea el texto del Dropdown (Nombre del Servicio) al ID del servicio en la DB
+    private int GetIdServicioByName(string nombreServicio)
+    {
+        var serv = db.Table<Servicio>().Where(s => s.Nombre == nombreServicio).FirstOrDefault();
+        return serv != null ? serv.Id : -1;
+    }
+
+    // Mapea el texto del Dropdown (Nombre Apellido) al ID del cliente en la DB
+    private int GetIdClienteByName(string nombreCompleto)
+    {
+        var partes = nombreCompleto.Split(' ');
+        if (partes.Length < 2) return -1;
+
+        string nombre = partes[0];
+        string apellido = partes[1];
+
+        var cliente = db.Table<Cliente>()
+                        .Where(c => c.Nombre == nombre && c.Apellido == apellido)
+                        .FirstOrDefault();
+
+        return cliente != null ? cliente.Id : -1;
+    }
+
 
     public void AbrirFormulario()
     {
-        // (Tu código original)
         panelFormulario.SetActive(true);
     }
 
     public void CancelarFormulario()
     {
-        // (Tu código original)
         panelFormulario.SetActive(false);
     }
 }
