@@ -1,11 +1,10 @@
 ﻿using UnityEngine;
 using System.IO;
 using Microsoft.Data.Sqlite;
-using Unity.VisualScripting.Dependencies.Sqlite;
+using System.Data; // Necesario para ConnectionState
 
 public class DBConnection : MonoBehaviour
 {
-    // Usamos el tipo de la nueva librería, 'SqliteConnection' (S minúscula)
     private SqliteConnection db;
     public static DBConnection Instance { get; private set; }
 
@@ -30,16 +29,16 @@ public class DBConnection : MonoBehaviour
 
         try
         {
-            // Construye el string de conexión requerido por Microsoft.Data.Sqlite
+            // Construye el string de conexión
             var connectionStringBuilder = new SqliteConnectionStringBuilder
             {
                 DataSource = dbPath
             };
 
             db = new SqliteConnection(connectionStringBuilder.ToString());
-            db.Open(); // Abrir la conexión
+            db.Open();
 
-            // Creamos las tablas usando comandos SQL puros (CREATE TABLE)
+            // Creamos las tablas usando comandos SQL puros
             using (var command = db.CreateCommand())
             {
                 // CLIENTE
@@ -59,8 +58,7 @@ public class DBConnection : MonoBehaviour
                 command.ExecuteNonQuery();
             }
 
-            db.Close(); // Cerrar la conexión
-
+            db.Close();
             Debug.Log("✅ Conexión a DB y tablas verificadas/creadas exitosamente.");
         }
         catch (System.Exception e)

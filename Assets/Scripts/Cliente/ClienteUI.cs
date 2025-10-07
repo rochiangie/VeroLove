@@ -5,6 +5,7 @@ using TMPro;
 using Microsoft.Data.Sqlite;
 using Unity.VisualScripting.Dependencies.Sqlite;
 
+
 public class ClienteUI : MonoBehaviour
 {
     [Header("UI")]
