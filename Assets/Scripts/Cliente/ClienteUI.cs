@@ -2,6 +2,11 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using SQLite;
+using System.Linq;
+
+// Añadimos el alias necesario para la conexión a SQLite
+using SQLiteConnectionCustom = SQLite.SQLiteConnection;
 
 public class ClienteUI : MonoBehaviour
 {
@@ -11,32 +16,63 @@ public class ClienteUI : MonoBehaviour
     public TMP_InputField inputBusqueda;      // Campo de búsqueda
     public Button botonBuscar;                // (Opcional) botón Buscar
 
+    // Referencia a la conexión de la DB
+    private DBConnection dbConnection;
+    private SQLiteConnectionCustom db;
     private List<Cliente> listaClientes = new List<Cliente>();
+
+    void Awake()
+    {
+        // Obtener la conexión a la base de datos
+        dbConnection = FindObjectOfType<DBConnection>();
+        if (dbConnection == null)
+        {
+            Debug.LogError("DBConnection no encontrado. Asegúrate de que está en la escena.");
+            return;
+        }
+        db = dbConnection.GetConnection();
+    }
 
     void Start()
     {
-        listaClientes = ClienteStorage.CargarClientes();
+        CargarClientesDesdeDB();
         MostrarClientes();
 
         // Filtro en vivo
         if (inputBusqueda != null)
-            inputBusqueda.onValueChanged.AddListener(_ => BuscarCliente());
+            inputBusqueda.onValueChanged.AddListener(_ => BuscarClienteVisual());
 
         // Botón Buscar (si existe en la escena)
         if (botonBuscar != null)
-            botonBuscar.onClick.AddListener(BuscarCliente);
+            botonBuscar.onClick.AddListener(BuscarClienteVisual);
     }
 
-    public void AgregarCliente(Cliente cliente)
+    // --- Lógica de Carga de Datos (SQLite) ---
+
+    public void CargarClientesDesdeDB()
     {
-        if (cliente == null) return;
-        listaClientes.Add(cliente);
-        ClienteStorage.GuardarClientes(listaClientes);
-        // Redibujar para mantener orden/consistencia
+        try
+        {
+            // Cargar todos los clientes de la tabla
+            listaClientes = db.Table<Cliente>().ToList();
+            listaClientes = listaClientes.OrderBy(c => c.Apellido).ToList(); // Opcional: ordenar por apellido
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"Error al cargar clientes desde DB: {e.Message}");
+            listaClientes = new List<Cliente>(); // Inicializar vacía en caso de error
+        }
         MostrarClientes();
-        // Reaplicar filtro si hay texto
-        BuscarCliente();
     }
+
+    // El método AgregarCliente ya no se necesita, el Guardar ocurre en ClienteForm.cs
+    // Ahora solo necesitamos recargar la lista si ClienteForm guarda algo nuevo.
+    public void RecargarListaClientes()
+    {
+        CargarClientesDesdeDB();
+    }
+
+    // --- Lógica de Interfaz Visual ---
 
     private void MostrarClientes()
     {
@@ -51,38 +87,42 @@ public class ClienteUI : MonoBehaviour
     {
         GameObject item = Instantiate(prefabClienteItem, contenedorClientes);
 
-        // Tus nombres de hijos en el prefab:
-        // "Nombre", "Telefono", "Email"
+        // CORRECCIÓN: Usamos la capitalización correcta (PascalCase) de las propiedades
+        // Esto resuelve los errores CS1061
+
+        // Aquí podrías usar una subclase para manejar el Item, pero por simplicidad:
+
         TMP_Text nombreTMP = item.transform.Find("Nombre")?.GetComponent<TMP_Text>();
         TMP_Text telefonoTMP = item.transform.Find("Telefono")?.GetComponent<TMP_Text>();
         TMP_Text emailTMP = item.transform.Find("Email")?.GetComponent<TMP_Text>();
 
-        if (nombreTMP != null) nombreTMP.text = cliente.nombre;
-        if (telefonoTMP != null) telefonoTMP.text = cliente.telefono;
-        if (emailTMP != null) emailTMP.text = cliente.email;
+        // Usamos las propiedades correctas: Nombre, Apellido, Telefono, Mail (del modelo Cliente.cs)
+        if (nombreTMP != null) nombreTMP.text = $"{cliente.Nombre} {cliente.Apellido}"; // Concatenamos Nombre y Apellido
+        if (telefonoTMP != null) telefonoTMP.text = cliente.Telefono;
+        if (emailTMP != null) emailTMP.text = cliente.Mail;
+
+        // Opcional: Guardar el ID en el item para usarlo al seleccionarlo
+        // item.GetComponent<ClienteItem>()?.SetClienteId(cliente.Id); 
     }
 
-    public void BuscarCliente()
+    // --- Lógica de Búsqueda ---
+
+    // Cambiamos el nombre para que refleje que solo busca en la lista visual actual
+    public void BuscarClienteVisual()
     {
         string filtro = (inputBusqueda != null ? inputBusqueda.text : "").Trim().ToLower();
 
-        // Si no hay filtro, mostrar todo
-        if (string.IsNullOrEmpty(filtro))
-        {
-            foreach (Transform hijo in contenedorClientes)
-                hijo.gameObject.SetActive(true);
-            return;
-        }
-
-        // Buscar por el hijo "Nombre" (coincide con el que usamos al crear el ítem)
         foreach (Transform hijo in contenedorClientes)
         {
-            TMP_Text textoNombre = hijo.Find("Nombre")?.GetComponent<TMP_Text>();
-            string nombre = (textoNombre != null ? textoNombre.text : "").ToLower();
-            bool coincide = nombre.Contains(filtro);
+            // Suponemos que el texto visible del cliente está en el hijo llamado "Nombre"
+            TMP_Text textoNombreCompleto = hijo.Find("Nombre")?.GetComponent<TMP_Text>();
+            string nombreCompleto = (textoNombreCompleto != null ? textoNombreCompleto.text : "").ToLower();
+
+            bool coincide = nombreCompleto.Contains(filtro);
             hijo.gameObject.SetActive(coincide);
         }
     }
 
+    // Método para ser usado por el TurnoManager
     public List<Cliente> ObtenerClientes() => listaClientes;
 }

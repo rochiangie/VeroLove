@@ -1,40 +1,59 @@
-using SQLite;
+﻿using UnityEngine;
 using System.IO;
-using Unity.VisualScripting.Dependencies.Sqlite;
-using UnityEngine; // Para acceder a Application.persistentDataPath
+
+// 1. Definimos un alias para la clase SQLiteConnection
+// Esto le dice al compilador: "Cuando veas 'SQLiteConnectionCustom', usa la clase que está en el namespace global."
+using SQLite;
+using SQLiteConnectionCustom = SQLite.SQLiteConnection;
+
 
 public class DBConnection : MonoBehaviour
 {
-    private SQLiteConnection db;
+    // 2. Usamos el alias para declarar la variable
+    private SQLiteConnectionCustom db;
 
-    void Start()
+    void Awake()
     {
-        // Ruta donde se guardar� el archivo .db en el dispositivo/PC
-        string dbPath = Path.Combine(Application.persistentDataPath, "VeroLoveDB.sqlite");
-        Debug.Log("Ruta de la DB: " + dbPath);
+        InitializeDatabase();
+    }
+
+    private void InitializeDatabase()
+    {
+        // Define la ruta donde se guardará el archivo .db
+        string dbFileName = "VeroLoveDB.sqlite";
+        // Application.persistentDataPath es la ruta segura para guardar datos en el dispositivo
+        string dbPath = Path.Combine(Application.persistentDataPath, dbFileName);
+
+        Debug.Log("Intentando conectar/crear DB en: " + dbPath);
 
         try
         {
-            // Inicializa la conexi�n
-            db = new SQLiteConnection(dbPath);
+            // 3. Usamos el alias para instanciar la conexión
+            db = new SQLiteConnectionCustom(dbPath);
 
-            // Crea las tablas si no existen, usando tus clases
+            // Creación de Tablas (si no existen)
             db.CreateTable<Cliente>();
             db.CreateTable<Servicio>();
             db.CreateTable<Profesional>();
             db.CreateTable<Turno>();
 
-            Debug.Log("Conexi�n a DB y tablas creadas exitosamente.");
+            Debug.Log("✅ Conexión a DB y tablas verificadas/creadas exitosamente.");
         }
         catch (System.Exception e)
         {
-            Debug.LogError("Error al conectar o crear tablas: " + e.Message);
+            Debug.LogError("❌ ERROR FATAL al inicializar la base de datos: " + e.Message);
         }
     }
 
-    // M�todo para obtener la conexi�n y hacer consultas
-    public SQLiteConnection GetConnection()
+    // 4. Método para que otros scripts obtengan la conexión y hagan consultas
+    public SQLiteConnectionCustom GetConnection()
     {
+        if (db == null)
+        {
+            // Esto solo debería ocurrir si la inicialización falló o fue accedida muy rápido
+            Debug.LogError("Se intentó acceder a la DB antes de que se inicializara. Reintentando...");
+            InitializeDatabase();
+        }
         return db;
     }
 }

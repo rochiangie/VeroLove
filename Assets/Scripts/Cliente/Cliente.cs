@@ -1,14 +1,21 @@
-[System.Serializable]
+using SQLite;
+using System;
+
 public class Cliente
 {
-    public string nombre;
-    public string telefono;
-    public string email;
+    [PrimaryKey, AutoIncrement]
+    public int Id { get; set; }
 
-    public Cliente(string nombre, string telefono, string email)
-    {
-        this.nombre = nombre;
-        this.telefono = telefono;
-        this.email = email;
-    }
+    [MaxLength(100)]
+    public string Nombre { get; set; }
+
+    [MaxLength(100)]
+    public string Apellido { get; set; }
+
+    [Unique] // Opcional: Asegura que cada cliente tenga un correo único
+    [MaxLength(100)]
+    public string Mail { get; set; }
+
+    [MaxLength(15)]
+    public string Telefono { get; set; }
 }
